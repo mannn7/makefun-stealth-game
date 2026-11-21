@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moonlight Heist — a stealth game</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #07060d; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #e8e2d4;
+    overflow: hidden;
+  }
+  #stage { position: relative; width: 1280px; height: 800px; flex: none; }
+  canvas { display: block; width: 1280px; height: 800px; background: #0a0812; }
+
+  /* Top HUD bar */
+  #hud-top {
+    position: absolute; top: 0; left: 0; right: 0; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(5,4,10,0.88), rgba(5,4,10,0));
+  }
+  #objective { font-size: 15px; letter-spacing: 0.4px; color: #f2e9d0; max-width: 430px; }
+  #objective::before { content: "◆ "; color: #c9a227; }
+  #eye-box {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(8,7,14,0.72); border: 1px solid #3a3348;
+    border-radius: 20px; padding: 7px 14px;
+  }
+  #eye-box.hot { border-color: #e5484d; box-shadow: 0 0 14px rgba(229,72,77,0.45); }
+  #eye-icon { font-size: 17px; line-height: 1; }
+  #eye-track { width: 170px; height: 9px; background: #241f33; border-radius: 5px; overflow: hidden; }
+  #eye-fill { height: 100%; width: 0%; background: #7dd87d; border-radius: 5px; transition: width 0.12s linear; }
+  #eye-label { font-size: 11px; letter-spacing: 1.5px; color: #b8b0a0; }
+  #hud-right { display: flex; align-items: center; gap: 16px; font-size: 14px; }
+  #gem-state { color: #9ff3ff; letter-spacing: 0.5px; }
+  #gem-state.stolen { color: #e8c15a; }
+  #clock { font-variant-numeric: tabular-nums; color: #f2e9d0; background: rgba(8,7,14,0.72);
+    border: 1px solid #3a3348; border-radius: 6px; padding: 4px 9px; }
+
+  #alarm-banner {
+    position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+    font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #ffb3b3;
+    background: rgba(120,10,16,0.85); border: 1px solid #e5484d; border-radius: 6px;
+    padding: 6px 16px; display: none; pointer-events: none;
+  }
+  #alarm-banner.on { display: block; animation: blink 0.9s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.55; } }
+
+  #message {
+    position: absolute; left: 140px; bottom: 56px; max-width: 640px;
+    font-size: 14px; color: #ffe9a8; text-shadow: 0 1px 3px #000;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  #message.show { opacity: 1; }
+  #hints {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 40px;
+    display: flex; align-items: center; justify-content: center; gap: 22px;
+    font-size: 12.5px; color: #a99f8d; pointer-events: none;
+    background: linear-gradient(to top, rgba(5,4,10,0.88), rgba(5,4,10,0));
+  }
+  #hints b { color: #e8e2d4; }
+
+  /* Overlays */
+  .overlay {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(5,4,10,0.55);
+  }
+  .overlay.show { display: flex; }
+  .panel {
+    background: rgba(12,10,20,0.92); border: 1px solid #c9a227; border-radius: 12px;
+    padding: 34px 44px; max-width: 620px; box-shadow: 0 0 60px rgba(0,0,0,0.8);
+  }
+  .panel h1 { font-size: 42px; letter-spacing: 4px; color: #f2e9d0; margin-bottom: 6px; }
+  .panel h2 { font-size: 30px; letter-spacing: 2px; margin-bottom: 10px; }
+  .panel .sub { font-size: 14px; letter-spacing: 3px; color: #c9a227; margin-bottom: 18px; }
+  .panel p { font-size: 15px; line-height: 1.6; color: #cfc7b4; margin-bottom: 12px; }
+  .panel .keys { font-size: 13.5px; color: #a99f8d; margin-bottom: 20px; line-height: 1.9; }
+  .panel .keys b { color: #e8e2d4; }
+  .panel button {
+    font-size: 17px; letter-spacing: 1px; cursor: pointer;
+    color: #0a0812; background: #e8c15a; border: none; border-radius: 8px;
+    padding: 12px 34px; font-weight: 700;
+  }
+  .panel button:hover { background: #f5d67a; }
+  #win-title { color: #7dd87d; }
+  #lose-title { color: #e5484d; }
+  #win-stats, #lose-stats { font-size: 14.5px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="1280" height="800"></canvas>
+
+  <div id="hud-top">
+    <div id="objective">Steal the Moon Opal from its pedestal</div>
+    <div id="eye-box" title="Unseen">
+      <span id="eye-icon">👁</span>
+      <div id="eye-track"><div id="eye-fill"></div></div>
+      <span id="eye-label">SEEN</span>
+    </div>
+    <div id="hud-right">
+      <span id="gem-state">◇ OPAL — ON DISPLAY</span>
+      <span id="clock">00:00</span>
+    </div>
+  </div>
+  <div id="alarm-banner"></div>
+  <div id="message"></div>
+  <div id="hints">
+    <span><b>WASD / ←↑↓→</b> move</span>
+    <span><b>Shift</b> run (loud)</span>
+    <span><b>C</b> sneak (quiet)</span>
+    <span><b>M</b> mute</span>
+    <span>Dark corners hide you · cones are watching</span>
+  </div>
+
+  <div class="overlay" id="title-screen">
+    <div class="panel">
+      <h1>MOONLIGHT HEIST</h1>
+      <div class="sub">A STEALTH GAME · THE HALDEN GALLERY · AFTER DARK</div>
+      <p>You are <b>Wren</b>, a cat burglar. The Moon Opal glows on its pedestal
+      in the middle of the gallery, and five guards walk the halls with their
+      lantern cones sweeping the floor. Slip past them, lift the Opal, and
+      reach the green <b>EXIT</b> mat — unseen.</p>
+      <p class="keys"><b>WASD / arrows</b> move &nbsp;·&nbsp; <b>Shift</b> run (fast, loud) &nbsp;·&nbsp;
+      <b>C</b> sneak (slow, near-silent)<br>Display cases, crates and pillars block
+      their sight. Dark corners hide you. If the eye fills, run — or be caught.</p>
+      <button id="start-btn">BEGIN THE HEIST</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="end-win">
+    <div class="panel">
+      <h2 id="win-title">ESCAPED</h2>
+      <p id="win-stats"></p>
+      <button id="again-btn">STEAL IT AGAIN</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="end-lose">
+    <div class="panel">
+      <h2 id="lose-title">CAUGHT</h2>
+      <p id="lose-stats"></p>
+      <button id="retry-btn">TRY AGAIN, QUIETER</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
